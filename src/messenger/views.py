@@ -1,6 +1,4 @@
 import json
-import re
-import requests
 from abc import ABC
 from decouple import config
 from django.conf import settings
@@ -28,9 +26,6 @@ class Messenger(BaseMessenger, ABC):
         res = self.send(action, 'RESPONSE')
         print(f"RESPONSE: {res}")
 
-    def postback(self, message):
-        pass
-
 
 messenger = Messenger(PAGE_ACCESS_TOKEN)
 
@@ -44,10 +39,6 @@ def process_message(message):
 
         if msg.lower() in auto_message:
             response = Text(text=auto_message[msg.lower()])
-        # for key in auto_message.keys():
-        #     if key in msg.lower():
-        #         response = Text(text=auto_message[key])
-        #         break
         return response.to_dict()
     else:
         response = Text(text=f"Sorry only text message, please!")
@@ -61,41 +52,14 @@ class BotView(generic.View):
         else:
             return HttpResponse('Error, invalid token')
 
+    # A POST method in Django need to be using with csrf token.
     @method_decorator(csrf_exempt)
     def dispatch(self, request, *args, **kwargs):
         return generic.View.dispatch(self, request, *args, **kwargs)
 
-    # Post function to handle Facebook messages
+    # POST function to handle Facebook messages
     def post(self, request, *args, **kwargs):
         # Converts the text payload into a python dictionary
         payload = json.loads(self.request.body.decode('utf-8'))
         messenger.handle(payload)
         return HttpResponse()
-
-
-def post_facebook_message(sender_id, received_message):
-    auto_message = {
-        'hello': "Hello World!",
-    }
-    # Remove all punctuations, lower case the text and split it based on space
-    # [^a-zA-Z0-9\s] is the pattern which match all character except a-z, A-Z, 0-9 and any whitespace
-    # re.sub(pattern, repl, string)
-    # pattern is a regular expression that you want to match.
-    # repl is the replacement
-    # string is the input string
-    # => replace all matching pattern with the repl in the input string.
-    tokens = re.sub(r"[^a-zA-Z0-9\s]", ' ', received_message).lower().split()
-    response_text = ''
-    for token in tokens:
-        if token in auto_message:
-            response_text = auto_message[token]
-            break
-    if not response_text:
-        response_text = "I didn't understand!"
-    post_message_url = f'https://graph.facebook.com/v2.6/me/messages?access_token={PAGE_ACCESS_TOKEN}'
-    response_msg = json.dumps({"recipient": {"id": sender_id}, "message": {"text": response_text}})
-    status = requests.post(post_message_url, headers={"Content-Type": "application/json"}, data=response_msg)
-    print(status.json())
-
-
-
