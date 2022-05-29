@@ -1,13 +1,15 @@
 import json
-import requests
 import re
-from django.shortcuts import render
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
-from django.views import generic
-from django.http.response import HttpResponse
+import requests
+from abc import ABC
 from decouple import config
-
+from django.conf import settings
+from django.http.response import HttpResponse
+from django.utils.decorators import method_decorator
+from django.views import generic
+from django.views.decorators.csrf import csrf_exempt
+from fbmessenger import BaseMessenger, MessengerClient
+from fbmessenger.elements import Text
 
 # Environment variable
 PAGE_ACCESS_TOKEN = config('PAGE_ACCESS_TOKEN')
@@ -15,6 +17,43 @@ VERIFY_TOKEN = config('VERIFY_TOKEN')
 
 
 # Create your views here.
+class Messenger(BaseMessenger, ABC):
+    def __init__(self, page_access_token, app_secret=None):
+        self.page_access_token = page_access_token
+        self.app_secret = app_secret
+        self.client = MessengerClient(self.page_access_token, app_secret=self.app_secret)
+
+    def message(self, message):
+        action = process_message(message)
+        res = self.send(action, 'RESPONSE')
+        print(f"RESPONSE: {res}")
+
+    def postback(self, message):
+        pass
+
+
+messenger = Messenger(PAGE_ACCESS_TOKEN)
+
+
+def process_message(message):
+    if 'text' in message['message']:
+        msg = message['message']['text']
+        response = Text(text=f"Sorry didn't understand that: {msg}")
+
+        auto_message = settings.DATA
+
+        if msg.lower() in auto_message:
+            response = Text(text=auto_message[msg.lower()])
+        # for key in auto_message.keys():
+        #     if key in msg.lower():
+        #         response = Text(text=auto_message[key])
+        #         break
+        return response.to_dict()
+    else:
+        response = Text(text=f"Sorry only text message, please!")
+        return response.to_dict()
+
+
 class BotView(generic.View):
     def get(self, request, *args, **kwargs):
         if self.request.GET['hub.verify_token'] == VERIFY_TOKEN:
@@ -29,20 +68,8 @@ class BotView(generic.View):
     # Post function to handle Facebook messages
     def post(self, request, *args, **kwargs):
         # Converts the text payload into a python dictionary
-        incoming_message = json.loads(self.request.body.decode('utf-8'))
-        # Facebook recommends going through every entry since they might send
-        # multiple messages in a single call during high load
-        for entry in incoming_message['entry']:
-            for message in entry['messaging']:
-                # Check to make sure the received call is a message call
-                # This might be delivery, opt-in, postback for other events
-                if 'message' in message:
-                    # Print the message to the terminal
-                    print(message)
-                    # Assuming the sender only sends text.
-                    # Non-text messages like stickers, audio, pictures are sent as attachments
-                    # and must be handled accordingly.
-                    post_facebook_message(message['sender']['id'], message['message']['text'])
+        payload = json.loads(self.request.body.decode('utf-8'))
+        messenger.handle(payload)
         return HttpResponse()
 
 
